@@ -1,0 +1,36 @@
+{
+  "name": "zh-prompt-search-mcp",
+  "version": "0.1.0",
+  "description": "MCP server：中文垂直语料检索。为写中文提示词提供中文专家文档 / 中文提示词样例 / 任务骨架作为参考材料，含中文专有词整词保护。",
+  "type": "module",
+  "main": "server.js",
+  "bin": {
+    "zh-prompt-search-mcp": "server.js"
+  },
+  "files": [
+    "server.js",
+    "zhretriever.js",
+    "zh-corpus.json",
+    "sync-corpus.mjs",
+    "test-mcp.mjs",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node test-mcp.mjs",
+    "sync-corpus": "node sync-corpus.mjs"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "prompt",
+    "prompt-engineering",
+    "chinese",
+    "zh",
+    "corpus",
+    "retrieval"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}
