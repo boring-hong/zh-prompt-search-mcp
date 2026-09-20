@@ -1,0 +1,6 @@
+# Keep line endings stable for a repo that is cloned on Windows and run under Node on any OS.
+# Without this, a Windows checkout with core.autocrlf=true rewrites every file on the next commit,
+# which buries real changes in whitespace noise and can break the `bin` entry's shebang.
+* text=auto eol=lf
+*.png binary
+*.jpg binary

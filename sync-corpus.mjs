@@ -8,6 +8,7 @@
 // 用法：
 //   node sync-corpus.mjs                 # 默认从 GitHub 拉取
 //   node sync-corpus.mjs --local <dir>   # 从本地插件目录拉取（开发期更快）
+//   node sync-corpus.mjs --force         # 目标有本地改动时也覆盖
 import { readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -18,6 +19,7 @@ const REPO = 'boring-hong/dsh-zh-prompt-library'
 const REF = process.argv.includes('--ref')
   ? process.argv[process.argv.indexOf('--ref') + 1]
   : 'main'
+const FORCE = process.argv.includes('--force')
 
 const localIdx = process.argv.indexOf('--local')
 const LOCAL_DIR = localIdx !== -1 ? process.argv[localIdx + 1] : null
@@ -29,6 +31,16 @@ const FILES = [
 
 function sha256(text) {
   return createHash('sha256').update(text).digest('hex').slice(0, 16)
+}
+
+// The vendor header is added by this script, so it must also be removed before comparing —
+// otherwise every run sees a "change" and appends another header on top of the last one.
+function stripVendorHeader(text) {
+  return text.replace(/^(?:\/\/ vendored from [^\n]*\n|\/\/ sha256:[^\n]*\n)+/, '')
+}
+
+function vendorHeader(origin, text) {
+  return `// vendored from ${origin}\n// sha256:${sha256(text)}  synced:${new Date().toISOString()}\n`
 }
 
 async function fetchText(file) {
@@ -44,6 +56,7 @@ async function fetchText(file) {
 }
 
 let changed = 0
+let blocked = 0
 for (const file of FILES) {
   const { text, origin } = await fetchText(file)
   const target = join(HERE, file.name)
@@ -53,21 +66,38 @@ for (const file of FILES) {
   } catch (error) {
     previous = null
   }
-  if (previous === text) {
-    console.log(`  = ${file.name} 未变化（sha256:${sha256(text)}）`)
+
+  const previousBody = previous === null ? null : stripVendorHeader(previous)
+  // Normalise the incoming text too: the plugin copy carries no vendor header while this copy
+  // does, so comparing raw text would make the header itself look like content drift — every run
+  // would report a conflict on a file that is actually identical.
+  const incomingBody = stripVendorHeader(text)
+  if (previousBody === incomingBody) {
+    console.log(`  = ${file.name} 未变化（sha256:${sha256(incomingBody)}）`)
     continue
   }
-  // 在文件头写入来源与校验值，便于日后核对两份副本是否漂移。
-  const header =
-    file.name.endsWith('.json')
-      ? null
-      : `// vendored from ${origin}\n// sha256:${sha256(text)}  synced:${new Date().toISOString()}\n`
-  await writeFile(target, header ? header + text : text)
-  console.log(`  ✎ ${file.name} 已更新（sha256:${sha256(text)}）`)
+
+  // A pre-existing copy that differs from upstream may carry deliberate local fixes (for example
+  // the skills threshold and injection cap tuned in this repo). Overwriting it silently would
+  // revert them, so require an explicit --force.
+  if (previousBody !== null && !FORCE) {
+    console.log(`  ! ${file.name} 与上游不一致（本地 ${sha256(previousBody)} ≠ 上游 ${sha256(incomingBody)}）`)
+    console.log(`      未覆盖。确认要放弃本地改动请加 --force；若本地是修复，请先把它同步回 ${REPO}。`)
+    blocked += 1
+    continue
+  }
+
+  const header = file.name.endsWith('.json') ? null : vendorHeader(origin, incomingBody)
+  await writeFile(target, header ? header + incomingBody : incomingBody)
+  console.log(`  ✎ ${file.name} 已更新（sha256:${sha256(incomingBody)}）`)
   changed += 1
 }
 
-console.log(changed === 0 ? '\n全部已是最新。' : `\n更新了 ${changed} 个文件。`)
+console.log(
+  changed === 0 && blocked === 0
+    ? '\n全部已是最新。'
+    : `\n更新了 ${changed} 个文件。` + (blocked > 0 ? ` ${blocked} 个因本地改动被跳过。` : ''),
+)
 if (!LOCAL_DIR) {
   console.log('提示：语料来自 ' + REPO + '@' + REF + '，改完记得跑 `npm test` 验证协议与检索。')
 }

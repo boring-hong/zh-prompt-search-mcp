@@ -12,17 +12,29 @@
 //   tools/call  → 执行工具，回 content 数组
 //
 // 环境变量：
-//   ZH_PROMPT_CORPUS   语料索引路径（默认 ./lib/zh-corpus.json）
-//   ZH_PROMPT_SKILLS   本地专家文档目录（默认 ~/.dsh/skills；不存在则只用语料）
-//   ZH_PROMPT_DEBUG=1  把诊断信息写到 stderr（stdout 只允许协议消息）
+//   ZH_PROMPT_CORPUS           语料索引路径（默认 ./lib/zh-corpus.json）
+//   ZH_PROMPT_SKILLS           本地专家文档目录（默认 ~/.dsh/skills；不存在则只用语料）
+//   ZH_PROMPT_SKILLS_MIN_CJK   文档低于此汉字数视为占位文件而不检索（默认 150）
+//   ZH_PROMPT_SKILLS_MAX_CHARS 单篇文档注入上限，超出则截断并标注（默认 8000）
+//   ZH_PROMPT_DEBUG=1          把诊断信息写到 stderr（stdout 只允许协议消息）
 
 import { readFile } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createZhRetriever } from './zhretriever.js'
+import { createZhRetriever, SKILLS_MIN_CJK } from './zhretriever.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
+
+// Report the real package version rather than a literal, so serverInfo can never drift from
+// package.json (it already had: 0.1.0 reported after the version was bumped).
+const VERSION = (() => {
+  try {
+    return JSON.parse(readFileSync(join(HERE, 'package.json'), 'utf8')).version || '0.0.0'
+  } catch {
+    return '0.0.0'
+  }
+})()
 
 // 协议版本：按 MCP 规范，服务端应回客户端请求的版本；不认识则回自己支持的最新版。
 // 客户端不匹配时会自行断开并报错，所以这里只做保守的取交集。
@@ -120,7 +132,8 @@ async function callTool(name, args) {
     const id = String((args && args.id) || '').trim()
     const snippet = snippetCache.get(id)
     if (!snippet) return { isError: true, text: `没有 id=${id} 的缓存片段，请先调用 search_chinese_prompts。` }
-    return { text: `【${snippet.label}】\n\n${snippet.text}` }
+    // Skills are injected capped; this is the escape hatch that returns the untruncated original.
+    return { text: `【${snippet.label}】\n\n${snippet.fullText || snippet.text}` }
   }
 
   return { isError: true, text: `未知工具：${name}` }
@@ -151,7 +164,7 @@ async function handle(message) {
     respond(id, {
       protocolVersion: version,
       capabilities: { tools: { listChanged: false } },
-      serverInfo: { name: 'zh-prompt-search', version: '0.1.0' },
+      serverInfo: { name: 'zh-prompt-search', version: VERSION },
     })
     debug('initialize → protocol', version, 'client', JSON.stringify((params && params.clientInfo) || {}))
     return
@@ -225,6 +238,15 @@ retriever
     debug('ready: docs=' + info.docs + ' general=' + info.general + ' skills=' + info.skills)
     if (info.skills === 0) {
       debug('提示：未找到本地专家文档目录（' + (SKILLS_DIR || '(未配置)') + '），仅使用随包语料。')
+    }
+    // Say which files were skipped and why, so a deliberately placed document never silently
+    // fails to match.
+    const skipped = Array.isArray(info.skipped) ? info.skipped : []
+    if (skipped.length > 0) {
+      debug(
+        '提示：' + skipped.length + ' 个 .md 因过短未纳入检索（阈值 ' + SKILLS_MIN_CJK + ' 汉字，可用 ZH_PROMPT_SKILLS_MIN_CJK 调整）：' +
+          skipped.map((s) => `${s.name}(${s.cjk})`).join('、'),
+      )
     }
     if (!existsSync(CORPUS_PATH)) {
       debug('警告：语料文件不存在 ' + CORPUS_PATH + '，检索将返回空结果。')

@@ -1,11 +1,19 @@
 {
   "name": "zh-prompt-search-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "MCP server：中文垂直语料检索。为写中文提示词提供中文专家文档 / 中文提示词样例 / 任务骨架作为参考材料，含中文专有词整词保护。",
   "type": "module",
   "main": "server.js",
   "bin": {
     "zh-prompt-search-mcp": "server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/boring-hong/zh-prompt-search-mcp.git"
+  },
+  "homepage": "https://github.com/boring-hong/zh-prompt-search-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/boring-hong/zh-prompt-search-mcp/issues"
   },
   "files": [
     "server.js",

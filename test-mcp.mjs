@@ -1,6 +1,7 @@
 // MCP protocol smoke test: drive the server exactly the way a real MCP client does
 // (line-delimited JSON-RPC over stdio) and assert each stage of the handshake.
 import { spawn } from 'node:child_process'
+import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -85,6 +86,14 @@ try {
     '声明了 tools 能力',
   )
   check(init.result && init.result.serverInfo && init.result.serverInfo.name === 'zh-prompt-search', 'serverInfo 正确', init.result && JSON.stringify(init.result.serverInfo))
+  // serverInfo.version must track package.json — assert against it, not a literal, so a version
+  // bump cannot silently leave the server reporting a stale version.
+  const pkg = JSON.parse(await readFile(new URL('./package.json', import.meta.url), 'utf8'))
+  check(
+    init.result && init.result.serverInfo && init.result.serverInfo.version === pkg.version,
+    'serverInfo 版本与 package.json 一致',
+    (init.result && init.result.serverInfo && init.result.serverInfo.version) + ' vs ' + pkg.version,
+  )
   check(init.result && init.result.protocolVersion === '2025-06-18', '协议版本回显客户端请求值')
 
   notify('notifications/initialized')
